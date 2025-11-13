@@ -121,7 +121,6 @@
     vr-mode-ui="enabled: false"
     arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     renderer="antialias: true; alpha: true"
-    embedded
   >
     <a-assets>
       <a-mixin 
@@ -133,7 +132,7 @@
     </a-assets>
     
     <a-camera id="camera" gps-camera rotation-reader>
-      <a-entity id="nav-arrow" position="0 -1.5 -5" scale="0.7 0.7 0.7" visible="false">
+      <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
         <a-entity id="arrow-rotator">
           <a-entity mixin="arrow-shape"></a-entity>
         </a-entity>
