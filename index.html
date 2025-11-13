@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <meta charset="utf-m" />
+    <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>AR Campus Guide</title>
 
     <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
     
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-gps.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   </head>
 
   <body style="margin: 0; overflow: hidden">
@@ -17,14 +17,18 @@
       renderer="antialias: true; alpha: true"
     >
       <a-camera gps-camera rotation-reader>
-        <a-entity
-          gltf-model="url(https://raw.githubusercontent.com/google/project-hello/master/models/zard_spinner/zard_spinner.gltf)"
-          look-at="[gps-entity-place]"
-          scale="3 3 3"
-          position="0 -2 -5"
+        <a-cone
           id="compass-arrow"
+          color="magenta"
+          radius-bottom="0.5"
+          radius-top="0"
+          height="1"
+          position="0 -2 -5"
+          rotation="-90 0 0"
+          look-at="[gps-entity-place]"
+          scale="0.5 0.5 0.5"
         >
-        </a-entity>
+        </a-cone>
       </a-camera>
 
       <a-entity
