@@ -1,43 +1,483 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>AR Campus Guide</title>
-
-    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AR Navigation - Floating Arrows</title>
+  
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  
+  <!-- AR.js -->
+  <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.7/three.js/build/ar-threex-location-only.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.7/aframe/build/aframe-ar.js"></script>
+  
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+    }
     
-    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
-  </head>
-
-  <body style="margin: 0; overflow: hidden">
-    <a-scene
-      vr-mode-ui="enabled: false"
-      arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false"
-      renderer="antialias: true; alpha: true"
-    >
-      <a-camera gps-camera rotation-reader>
-        <a-entity
-          id="arrow-wrapper"
-          position="0 -2 -5"
-          look-at="#destination"
-        >
-          <a-entity
-            id="compass-arrow"
-            gltf-model="url(https://mixiplycontent.blob.core.windows.net/usefulstuff/b886ee02-15e0-451a-c594-08d6d1d77884/arrow.gltf)"
-            rotation="0 180 45"
-            scale="0.5 0.5 0.5"
-          >
-          </a-entity>
-        </a-entity>
-      </a-camera>
-
-      <a-entity
-        id="destination"
-        gps-entity-place="latitude: 26.187870872941197; longitude: 91.70008699559571;"
-      >
-      </a-entity>
+    #ui-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      z-index: 1000;
+      pointer-events: none;
+    }
+    
+    #controls {
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 15px;
+      pointer-events: all;
+    }
+    
+    #controls input, #controls button {
+      margin: 5px 0;
+      padding: 8px;
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+    
+    #controls button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    
+    #controls button:hover {
+      background: #45a049;
+    }
+    
+    #controls button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    #status {
+      background: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 10px;
+      margin-top: 10px;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    
+    #instructions {
+      background: rgba(33, 150, 243, 0.9);
+      color: white;
+      padding: 15px;
+      margin-top: 10px;
+      font-size: 14px;
+      font-weight: bold;
+    }
+    
+    .collapsed {
+      max-height: 50px;
+      overflow: hidden;
+    }
+    
+    #toggle-panel {
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      pointer-events: all;
+    }
+  </style>
+</head>
+<body>
+  
+  <div id="ui-overlay">
+    <div id="toggle-panel" onclick="togglePanel()">
+      ▼ Show/Hide Controls
+    </div>
+    <div id="controls" class="collapsed">
+      <h3 style="margin-top: 0;">AR Navigation Setup</h3>
       
-    </a-scene>
-  </body>
+      <div>
+        <label>Mapbox Access Token:</label>
+        <input type="text" id="mapbox-token" placeholder="Enter your Mapbox token">
+        <small style="color: #aaa;">Get a free token at mapbox.com</small>
+      </div>
+      
+      <div>
+        <label>Destination (Lat, Lon):</label>
+        <input type="text" id="destination" placeholder="e.g., 26.1445, 91.7362">
+      </div>
+      
+      <button onclick="startNavigation()">Start Navigation</button>
+      <button onclick="stopNavigation()">Stop Navigation</button>
+      
+      <div id="status">
+        <strong>Status:</strong> Waiting to start...
+      </div>
+    </div>
+    
+    <div id="instructions" style="display: none;">
+      Next: <span id="instruction-text">Calculating route...</span>
+    </div>
+  </div>
+
+  <a-scene
+    vr-mode-ui="enabled: false"
+    arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+    renderer="antialias: true; alpha: true; precision: medium;"
+    embedded
+  >
+    <a-camera gps-new-camera="gpsMinDistance: 5; simulateLatitude: 0; simulateLongitude: 0"></a-camera>
+  </a-scene>
+
+  <script>
+    let navigationActive = false;
+    let currentPosition = null;
+    let routeWaypoints = [];
+    let currentWaypointIndex = 0;
+    let arrowEntity = null;
+    let distanceThreshold = 20; // meters to reach waypoint
+    let updateInterval = null;
+
+    function togglePanel() {
+      const controls = document.getElementById('controls');
+      controls.classList.toggle('collapsed');
+    }
+
+    function logStatus(message) {
+      const status = document.getElementById('status');
+      const timestamp = new Date().toLocaleTimeString();
+      status.innerHTML = `<strong>[${timestamp}]</strong> ${message}<br>` + status.innerHTML;
+    }
+
+    // Watch user's position
+    function startPositionTracking() {
+      if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(
+          (position) => {
+            currentPosition = {
+              lat: position.coords.latitude,
+              lon: position.coords.longitude
+            };
+            
+            if (navigationActive && routeWaypoints.length > 0) {
+              updateNavigationArrow();
+            }
+          },
+          (error) => {
+            logStatus(`GPS Error: ${error.message}`);
+          },
+          {
+            enableHighAccuracy: true,
+            maximumAge: 0,
+            timeout: 5000
+          }
+        );
+      } else {
+        logStatus('Geolocation not supported');
+      }
+    }
+
+    // Calculate bearing between two points
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const toRadians = (deg) => deg * Math.PI / 180;
+      const toDegrees = (rad) => rad * 180 / Math.PI;
+      
+      const dLon = toRadians(lon2 - lon1);
+      const lat1Rad = toRadians(lat1);
+      const lat2Rad = toRadians(lat2);
+      
+      const y = Math.sin(dLon) * Math.cos(lat2Rad);
+      const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+                Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+      
+      let bearing = toDegrees(Math.atan2(y, x));
+      return (bearing + 360) % 360;
+    }
+
+    // Calculate distance between two points (Haversine formula)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371e3; // Earth radius in meters
+      const toRadians = (deg) => deg * Math.PI / 180;
+      
+      const φ1 = toRadians(lat1);
+      const φ2 = toRadians(lat2);
+      const Δφ = toRadians(lat2 - lat1);
+      const Δλ = toRadians(lon2 - lon1);
+      
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      
+      return R * c;
+    }
+
+    // Create or update arrow pointing to next waypoint
+    function updateNavigationArrow() {
+      if (!currentPosition || currentWaypointIndex >= routeWaypoints.length) {
+        return;
+      }
+
+      const nextWaypoint = routeWaypoints[currentWaypointIndex];
+      const distance = calculateDistance(
+        currentPosition.lat,
+        currentPosition.lon,
+        nextWaypoint.lat,
+        nextWaypoint.lon
+      );
+
+      // Check if we've reached the waypoint
+      if (distance < distanceThreshold) {
+        logStatus(`Reached waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`);
+        currentWaypointIndex++;
+        
+        if (currentWaypointIndex >= routeWaypoints.length) {
+          logStatus('Destination reached!');
+          document.getElementById('instructions').style.display = 'none';
+          stopNavigation();
+          return;
+        }
+      }
+
+      // Calculate bearing to next waypoint
+      const bearing = calculateBearing(
+        currentPosition.lat,
+        currentPosition.lon,
+        nextWaypoint.lat,
+        nextWaypoint.lon
+      );
+
+      // Update instruction
+      const instructionText = document.getElementById('instruction-text');
+      instructionText.textContent = `${Math.round(distance)}m ahead - Waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`;
+
+      // Create or update arrow
+      if (!arrowEntity) {
+        createArrowEntity(nextWaypoint, bearing, distance);
+      } else {
+        updateArrowPosition(nextWaypoint, bearing, distance);
+      }
+    }
+
+    // Create 3D arrow entity
+    function createArrowEntity(waypoint, bearing, distance) {
+      const scene = document.querySelector('a-scene');
+      const camera = document.querySelector('[gps-new-camera]');
+      
+      // Remove old arrow if exists
+      if (arrowEntity) {
+        scene.removeChild(arrowEntity);
+      }
+      
+      // Create arrow group
+      arrowEntity = document.createElement('a-entity');
+      
+      // Arrow shaft (cone)
+      const arrow = document.createElement('a-cone');
+      arrow.setAttribute('color', '#FF0000');
+      arrow.setAttribute('radius-bottom', '0.5');
+      arrow.setAttribute('radius-top', '0');
+      arrow.setAttribute('height', '2');
+      arrow.setAttribute('position', '0 0 0');
+      arrow.setAttribute('rotation', '0 0 0');
+      
+      // Arrow base (cylinder)
+      const base = document.createElement('a-cylinder');
+      base.setAttribute('color', '#FF0000');
+      base.setAttribute('radius', '0.3');
+      base.setAttribute('height', '1');
+      base.setAttribute('position', '0 -1.5 0');
+      
+      arrowEntity.appendChild(arrow);
+      arrowEntity.appendChild(base);
+      
+      // Position arrow relative to user
+      // Place it in front of the camera at a fixed distance
+      const arrowDistance = Math.min(distance * 0.3, 30); // Scale down but cap at 30m
+      arrowEntity.setAttribute('position', `0 0 -${arrowDistance}`);
+      arrowEntity.setAttribute('rotation', `90 ${-bearing} 0`);
+      
+      camera.appendChild(arrowEntity);
+      
+      logStatus(`Arrow created: bearing ${Math.round(bearing)}°, distance ${Math.round(distance)}m`);
+    }
+
+    // Update arrow position and rotation
+    function updateArrowPosition(waypoint, bearing, distance) {
+      if (!arrowEntity) return;
+      
+      const arrowDistance = Math.min(distance * 0.3, 30);
+      arrowEntity.setAttribute('position', `0 0 -${arrowDistance}`);
+      arrowEntity.setAttribute('rotation', `90 ${-bearing} 0`);
+    }
+
+    // Fetch route from Mapbox Directions API
+    async function fetchRoute(destLat, destLon) {
+      const token = document.getElementById('mapbox-token').value.trim();
+      
+      if (!token) {
+        alert('Please enter your Mapbox access token');
+        return null;
+      }
+      
+      if (!currentPosition) {
+        alert('Waiting for GPS position...');
+        return null;
+      }
+      
+      logStatus('Fetching route from Mapbox...');
+      
+      const startCoords = `${currentPosition.lon},${currentPosition.lat}`;
+      const endCoords = `${destLon},${destLat}`;
+      
+      const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startCoords};${endCoords}?geometries=geojson&steps=true&access_token=${token}`;
+      
+      try {
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.routes && data.routes.length > 0) {
+          logStatus('Route fetched successfully');
+          return data.routes[0];
+        } else {
+          logStatus('No route found');
+          return null;
+        }
+      } catch (error) {
+        logStatus(`Error fetching route: ${error.message}`);
+        return null;
+      }
+    }
+
+    // Extract waypoints from route geometry
+    function extractWaypoints(route) {
+      const coordinates = route.geometry.coordinates;
+      const waypoints = [];
+      
+      // Sample waypoints every ~50 meters to avoid too many points
+      const stepSize = Math.max(1, Math.floor(coordinates.length / 20));
+      
+      for (let i = 0; i < coordinates.length; i += stepSize) {
+        waypoints.push({
+          lon: coordinates[i][0],
+          lat: coordinates[i][1]
+        });
+      }
+      
+      // Always include the final destination
+      if (coordinates.length > 0) {
+        const last = coordinates[coordinates.length - 1];
+        waypoints.push({
+          lon: last[0],
+          lat: last[1]
+        });
+      }
+      
+      return waypoints;
+    }
+
+    // Start navigation
+    async function startNavigation() {
+      const destInput = document.getElementById('destination').value.trim();
+      
+      if (!destInput) {
+        alert('Please enter a destination (latitude, longitude)');
+        return;
+      }
+      
+      const [lat, lon] = destInput.split(',').map(s => parseFloat(s.trim()));
+      
+      if (isNaN(lat) || isNaN(lon)) {
+        alert('Invalid coordinates format. Use: latitude, longitude');
+        return;
+      }
+      
+      logStatus('Starting navigation...');
+      
+      // Wait for position if not available
+      if (!currentPosition) {
+        logStatus('Waiting for GPS position...');
+        setTimeout(() => startNavigation(), 2000);
+        return;
+      }
+      
+      // Fetch route
+      const route = await fetchRoute(lat, lon);
+      
+      if (!route) {
+        return;
+      }
+      
+      // Extract waypoints
+      routeWaypoints = extractWaypoints(route);
+      currentWaypointIndex = 0;
+      
+      logStatus(`Route has ${routeWaypoints.length} waypoints`);
+      logStatus(`Total distance: ${Math.round(route.distance)}m`);
+      
+      // Show instructions
+      document.getElementById('instructions').style.display = 'block';
+      
+      // Start navigation
+      navigationActive = true;
+      
+      // Update arrow every 2 seconds
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+      updateInterval = setInterval(updateNavigationArrow, 2000);
+      
+      // Initial update
+      updateNavigationArrow();
+    }
+
+    // Stop navigation
+    function stopNavigation() {
+      navigationActive = false;
+      currentWaypointIndex = 0;
+      routeWaypoints = [];
+      
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+      
+      if (arrowEntity) {
+        const scene = document.querySelector('a-scene');
+        const camera = document.querySelector('[gps-new-camera]');
+        if (camera && arrowEntity.parentNode === camera) {
+          camera.removeChild(arrowEntity);
+        }
+        arrowEntity = null;
+      }
+      
+      document.getElementById('instructions').style.display = 'none';
+      logStatus('Navigation stopped');
+    }
+
+    // Initialize on page load
+    window.addEventListener('load', () => {
+      logStatus('App loaded. Requesting GPS permission...');
+      startPositionTracking();
+      
+      // Collapse controls after 5 seconds
+      setTimeout(() => {
+        document.getElementById('controls').classList.add('collapsed');
+      }, 5000);
+    });
+  </script>
+  
+</body>
 </html>
