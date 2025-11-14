@@ -132,14 +132,14 @@
     </a-assets>
     
     <a-camera id="camera" gps-camera rotation-reader>
-  <a-entity id="nav-arrow" position="0 -1.5 -6" scale="0.3 0.3 0.3" visible="false">
+  <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
     
     <a-entity id="arrow-rotator">
       
       <a-cone 
         rotation="-90 0 0"
-        material="color: #FF0000; shader: flat"
-        geometry="primitive: cone; radiusBottom: 0.5; radiusTop: 0; height: 3">
+        material="color: #FF0000; shader: flat; transparent: true; opacity: 0.6"
+        geometry="primitive: cone; radiusBottom: 0.8; radiusTop: 0; height: 2.5">
       </a-cone>
 
     </a-entity>
