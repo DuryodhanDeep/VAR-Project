@@ -10,7 +10,7 @@
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   
   <style>
-    /* Your existing CSS is great. No changes needed. */
+    /* Your existing CSS is great. */
     body {
       margin: 0;
       overflow: hidden;
@@ -80,6 +80,47 @@
       cursor: pointer;
       pointer-events: all;
     }
+
+    /* --- NEW CSS FOR DESTINATION REACHED UI --- */
+    #destination-reached-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.85);
+      z-index: 2000;
+      pointer-events: all;
+      
+      /* Hide by default */
+      display: none; 
+
+      /* Flexbox to center content */
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      text-align: center;
+    }
+    #destination-reached-overlay h1 {
+      color: #4CAF50;
+      font-size: 2.5em;
+      margin: 0;
+    }
+    #destination-reached-overlay p {
+      color: white;
+      font-size: 1.2em;
+      margin: 10px 0 30px 0;
+    }
+    #destination-reached-overlay button {
+      background: #f44336;
+      color: white;
+      border: none;
+      cursor: pointer;
+      border-radius: 8px;
+      padding: 15px 30px;
+      font-size: 1.2em;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -92,12 +133,6 @@
       <h3 style="margin-top: 0;">AR Navigation Setup</h3>
       
       <div>
-        <label>Mapbox Access Token:</label>
-        <input type="text" id="mapbox-token" value="pk.eyJ1IjoiYXJ5YW5kb25sb25kb24iLCJhIjoiY21odzlnbm90MDA2eTJqcXZkamtxajdjOCJ9.bqShLStraxUBB1ANLi-6ZQ">
-        <small style="color: #aaa;">Token pre-filled</small>
-      </div>
-      
-      <div>
         <label>Destination (Lat, Lon):</label>
         <input type="text" id="destination" value="26.187870872941197, 91.70008699559571">
         <small style="color: #aaa;">IIT Guwahati area</small>
@@ -105,7 +140,6 @@
       
       <button onclick="startNavigation()">Start Navigation</button>
       <button onclick="stopNavigation()">Stop Navigation</button>
-      <button onclick="testArrow()">Test Arrow (Debug)</button>
       
       <div id="status">
         <strong>Status:</strong> Waiting to start...
@@ -117,20 +151,18 @@
     </div>
   </div>
 
+  <div id="destination-reached-overlay">
+    <h1>Destination Reached!</h1>
+    <p>You have arrived at your location.</p>
+    <button onclick="stopNavigation()">Exit Navigation</button>
+  </div>
+
+
   <a-scene
     vr-mode-ui="enabled: false"
     arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
     renderer="antialias: true; alpha: true"
   >
-    <a-assets>
-      <a-mixin 
-        id="arrow-shape"
-        rotation="-90 0 0"
-        material="color: #FF0000; shader: flat"
-        geometry="primitive: cone; radiusBottom: 0.8; radiusTop: 0; height: 2.5">
-      </a-mixin>
-    </a-assets>
-    
     <a-camera id="camera" gps-camera rotation-reader>
       <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
         
@@ -141,7 +173,7 @@
             material="color: #FF0000; shader: flat; transparent: true; opacity: 0.6"
             geometry="primitive: cone; radiusBottom: 0.8; radiusTop: 0; height: 2.5">
           </a-cone>
-    
+
         </a-entity>
       </a-entity>
     </a-camera>
@@ -153,7 +185,8 @@
     let currentPosition = null;
     let routeWaypoints = [];
     let currentWaypointIndex = 0;
-    let distanceThreshold = 20; // 20 meters
+    let distanceThreshold = 20; // 20 meters for intermediate waypoints
+    let destinationThreshold = 10; // 10 meters for the final destination
     let updateInterval = null;
 
     // --- UI & Logging Functions (Unchanged) ---
@@ -226,14 +259,11 @@
       return R * c; // in meters
     }
 
-    // --- Mapbox API Functions (Unchanged) ---
+    // --- Mapbox API Functions ---
     async function fetchRoute(destLat, destLon) {
-      const token = document.getElementById('mapbox-token').value.trim();
       
-      if (!token) {
-        alert('Please enter your Mapbox access token');
-        return null;
-      }
+      // MODIFICATION 1 (Part B): Token is now a hard-coded constant
+      const token = "pk.eyJ1IjoiYXJ5YW5kb25sb25kb24iLCJhIjoiY21odzlnbm90MDA2eTJqcXZkamtxajdjOCJ9.bqShLStraxUBB1ANLi-6ZQ";
       
       if (!currentPosition) {
         alert('Waiting for GPS position...');
@@ -283,48 +313,28 @@
         });
       }
       
+      // Ensure the final, exact destination is always included
       if (coordinates.length > 0) {
         const last = coordinates[coordinates.length - 1];
-        waypoints.push({
-          lon: last[0],
-          lat: last[1]
-        });
+        if (waypoints[waypoints.length - 1].lon !== last[0] || waypoints[waypoints.length - 1].lat !== last[1]) {
+          waypoints.push({
+            lon: last[0],
+            lat: last[1]
+          });
+        }
       }
       
       return waypoints;
     }
 
     // --- 
-    // *** CORE NAVIGATION LOGIC (IMPROVED) ***
+    // *** CORE NAVIGATION LOGIC ***
     // ---
 
-    /**
-     * *** IMPROVED: Updated Test Function ***
-     * Makes the arrow visible and spins it.
-     */
-    function testArrow() {
-      logStatus('Testing arrow...');
-      const navArrow = document.getElementById('nav-arrow');
-      const arrowRotator = document.getElementById('arrow-rotator');
-      
-      if (navArrow && arrowRotator) {
-        navArrow.setAttribute('visible', 'true');
-        
-        // Add a spinning animation to the rotator
-        arrowRotator.setAttribute('animation', {
-          property: 'rotation',
-          to: '0 360 0',
-          loop: true,
-          dur: 4000,
-          easing: 'linear'
-        });
-        logStatus('Test arrow visible and spinning.');
-      }
-    }
+    // MODIFICATION 2 (Part B): testArrow() function is REMOVED
 
     /**
-     * *** IMPROVED: Main Update Loop ***
-     * This function now only UPDATES the arrow, it doesn't create it.
+     * *** Main Update Loop ***
      */
     function updateNavigationArrow() {
       if (!currentPosition || !navigationActive || currentWaypointIndex >= routeWaypoints.length) {
@@ -348,17 +358,26 @@
         nextWaypoint.lon
       );
 
-      // Check if reached waypoint
+      // ---
+      // MODIFICATION 3 (Part C): Destination Reached Logic
+      // ---
+      // Check if we are at the FINAL waypoint
+      if (currentWaypointIndex === routeWaypoints.length - 1) {
+          // Check distance to final destination
+          if (distance < destinationThreshold) {
+              logStatus('Destination reached!');
+              document.getElementById('instructions').style.display = 'none';
+              // Show the new "Destination Reached" UI
+              document.getElementById('destination-reached-overlay').style.display = 'flex'; 
+              stopNavigation(); // Stop intervals, hide arrow
+              return;
+          }
+      }
+      
+      // This is the existing logic for intermediate waypoints
       if (distance < distanceThreshold) {
-        logStatus(`Reached waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`);
-        currentWaypointIndex++;
-        
-        if (currentWaypointIndex >= routeWaypoints.length) {
-          logStatus('Destination reached!');
-          document.getElementById('instructions').style.display = 'none';
-          stopNavigation();
-          return;
-        }
+          logStatus(`Reached waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`);
+          currentWaypointIndex++;
       }
 
       // Calculate absolute bearing to the next waypoint
@@ -369,13 +388,11 @@
         nextWaypoint.lon
       );
 
-      // Get the camera's current absolute heading from the compass
-      // object3D.rotation is in radians
+      // Get the camera's current absolute heading
       const cameraRotation = camera.object3D.rotation.y; 
       const cameraHeading = THREE.MathUtils.radToDeg(cameraRotation);
       
       // Calculate the arrow's rotation *relative* to the camera
-      // This is the magic: (Target Bearing) - (Current Camera Heading)
       const relativeBearing = bearing - cameraHeading;
       
       // Set the arrow's rotation and make it visible
@@ -389,12 +406,8 @@
       logStatus(`Arrow updated: bearing ${Math.round(bearing)}°, dist ${Math.round(distance)}m`);
     }
 
-    /**
-     * *** REMOVED `createNavigationArrow` function ***
-     * It is no longer needed.
-     */
 
-    // --- Main Control Functions (Improved) ---
+    // --- Main Control Functions ---
 
     async function startNavigation() {
       const destInput = document.getElementById('destination').value.trim();
@@ -419,10 +432,6 @@
         setTimeout(startNavigation, 2000); // Retry after 2s
         return;
       }
-      
-      // Stop any test animations
-      const arrowRotator = document.getElementById('arrow-rotator');
-      if (arrowRotator) arrowRotator.removeAttribute('animation');
 
       const route = await fetchRoute(lat, lon);
       
@@ -433,6 +442,11 @@
       
       routeWaypoints = extractWaypoints(route);
       currentWaypointIndex = 0;
+      
+      if (routeWaypoints.length === 0) {
+        logStatus("Error: No waypoints extracted from route.");
+        return;
+      }
       
       logStatus(`Route: ${routeWaypoints.length} waypoints, ${Math.round(route.distance)}m`);
       
@@ -456,16 +470,18 @@
         updateInterval = null;
       }
       
-      // Hide the arrow, don't destroy it
+      // Hide the arrow
       const navArrow = document.getElementById('nav-arrow');
       if (navArrow) {
         navArrow.setAttribute('visible', 'false');
-        // Stop any test animations
-        const arrowRotator = document.getElementById('arrow-rotator');
-        if (arrowRotator) arrowRotator.removeAttribute('animation');
       }
       
+      // Hide the instruction bar
       document.getElementById('instructions').style.display = 'none';
+
+      // MODIFICATION 3 (Part D): Hide the destination overlay
+      document.getElementById('destination-reached-overlay').style.display = 'none';
+      
       logStatus('Navigation stopped');
     }
 
