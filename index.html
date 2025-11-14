@@ -132,19 +132,12 @@
     </a-assets>
     
     <a-camera id="camera" gps-camera rotation-reader>
-  <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
-    
-    <a-entity id="arrow-rotator">
-      
-      <a-cone 
-        rotation="-90 0 0"
-        material="color: #FF0000; shader: flat; transparent: true; opacity: 0.6"
-        geometry="primitive: cone; radiusBottom: 0.8; radiusTop: 0; height: 2.5">
-      </a-cone>
-
-    </a-entity>
-  </a-entity>
-</a-camera>
+      <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
+        <a-entity id="arrow-rotator">
+          <a-entity mixin="arrow-shape"></a-entity>
+        </a-entity>
+      </a-entity>
+    </a-camera>
     
   </a-scene>
 
@@ -156,7 +149,15 @@
     let distanceThreshold = 20; // 20 meters
     let updateInterval = null;
 
-    // --- UI & Logging Functions (Unchanged) ---
+    // --- NEW: For Step-by-Step Instructions ---
+    let routeSteps = [];
+    let currentStepIndex = 0;
+
+    // --- NEW: For Re-routing ---
+    let isReRouting = false;
+    const OFF_ROUTE_THRESHOLD = 75; // 75 meters
+
+    // --- UI & Logging Functions ---
     function togglePanel() {
       const controls = document.getElementById('controls');
       controls.classList.toggle('collapsed');
@@ -168,7 +169,7 @@
       status.innerHTML = `<strong>[${timestamp}]</strong> ${message}<br>` + status.innerHTML;
     }
 
-    // --- Geolocation Functions (Unchanged) ---
+    // --- Geolocation Functions ---
     function startPositionTracking() {
       if (navigator.geolocation) {
         navigator.geolocation.watchPosition(
@@ -177,6 +178,10 @@
               lat: position.coords.latitude,
               lon: position.coords.longitude
             };
+            // Log GPS accuracy
+            if (position.coords.accuracy) {
+                logStatus(`GPS position updated. Accuracy: ${position.coords.accuracy.toFixed(1)}m`);
+            }
           },
           (error) => {
             logStatus(`GPS Error: ${error.message}`);
@@ -192,7 +197,7 @@
       }
     }
 
-    // --- Math/Calculation Functions (Unchanged) ---
+    // --- Math/Calculation Functions ---
     function calculateBearing(lat1, lon1, lat2, lon2) {
       const toRadians = (deg) => deg * Math.PI / 180;
       const toDegrees = (rad) => rad * 180 / Math.PI;
@@ -203,7 +208,7 @@
       
       const y = Math.sin(dLon) * Math.cos(lat2Rad);
       const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-              Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+            Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
       
       let bearing = toDegrees(Math.atan2(y, x));
       return (bearing + 360) % 360;
@@ -219,14 +224,14 @@
       const Δλ = toRadians(lon2 - lon1);
       
       const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ/2) * Math.sin(Δλ/2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
       
       return R * c; // in meters
     }
 
-    // --- Mapbox API Functions (Unchanged) ---
+    // --- Mapbox API Functions ---
     async function fetchRoute(destLat, destLon) {
       const token = document.getElementById('mapbox-token').value.trim();
       
@@ -294,13 +299,10 @@
       return waypoints;
     }
 
-    // --- 
-    // *** CORE NAVIGATION LOGIC (IMPROVED) ***
-    // ---
+    // --- CORE NAVIGATION LOGIC ---
 
     /**
-     * *** IMPROVED: Updated Test Function ***
-     * Makes the arrow visible and spins it.
+     * Updated Test Function
      */
     function testArrow() {
       logStatus('Testing arrow...');
@@ -323,8 +325,50 @@
     }
 
     /**
-     * *** IMPROVED: Main Update Loop ***
-     * This function now only UPDATES the arrow, it doesn't create it.
+     * NEW: Re-routing Function
+     */
+    async function handleReRoute() {
+      if (isReRouting) return; // Request already in progress
+      isReRouting = true;
+      logStatus('Off-route. Fetching new route...');
+
+      // 1. Stop the current update loop
+      if (updateInterval) {
+        clearInterval(updateInterval);
+        updateInterval = null;
+      }
+      navigationActive = false;
+
+      // 2. Get the original destination from the input
+      const destInput = document.getElementById('destination').value.trim();
+      const [lat, lon] = destInput.split(',').map(s => parseFloat(s.trim()));
+
+      // 3. Fetch a new route (fetchRoute uses the currentPosition)
+      const route = await fetchRoute(lat, lon);
+
+      if (route && route.legs && route.legs.length > 0) {
+        // 4. Reset navigation state with the new route
+        routeWaypoints = extractWaypoints(route);
+        routeSteps = route.legs[0].steps; // Also reset steps
+        currentWaypointIndex = 0;
+        currentStepIndex = 0; // Also reset steps
+        
+        logStatus(`New route fetched: ${routeWaypoints.length} waypoints`);
+        navigationActive = true;
+        
+        // 5. Restart the update loop
+        updateInterval = setInterval(updateNavigationArrow, 2000);
+      } else {
+        logStatus("Failed to fetch new route. Stopping.");
+        stopNavigation(); // Full stop
+      }
+
+      isReRouting = false; // Allow re-routing again
+    }
+
+    /**
+     * Main Update Loop
+     * --- MODIFIED with dynamic snapping, re-routing, and step-by-step text ---
      */
     function updateNavigationArrow() {
       if (!currentPosition || !navigationActive || currentWaypointIndex >= routeWaypoints.length) {
@@ -340,18 +384,37 @@
         return;
       }
 
-      const nextWaypoint = routeWaypoints[currentWaypointIndex];
-      const distance = calculateDistance(
-        currentPosition.lat,
-        currentPosition.lon,
-        nextWaypoint.lat,
-        nextWaypoint.lon
-      );
+      // --- 1. Dynamic Waypoint Snapping ---
+      let closestIndex = currentWaypointIndex;
+      let minDistance = Infinity;
 
-      // Check if reached waypoint
-      if (distance < distanceThreshold) {
+      for (let i = currentWaypointIndex; i < routeWaypoints.length; i++) {
+        const distance = calculateDistance(
+          currentPosition.lat,
+          currentPosition.lon,
+          routeWaypoints[i].lat,
+          routeWaypoints[i].lon
+        );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestIndex = i;
+        }
+      }
+      currentWaypointIndex = closestIndex;
+      const nextWaypoint = routeWaypoints[currentWaypointIndex];
+      const distanceToTarget = minDistance; 
+
+      // --- 2. NEW: Automatic Re-routing Check ---
+      if (distanceToTarget > OFF_ROUTE_THRESHOLD && !isReRouting) {
+        handleReRoute();
+        return; // Stop this update, a new route is being fetched
+      }
+
+      // --- 3. Check for Arrival at Waypoint ---
+      if (distanceToTarget < distanceThreshold) {
         logStatus(`Reached waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`);
-        currentWaypointIndex++;
+        currentWaypointIndex++; 
         
         if (currentWaypointIndex >= routeWaypoints.length) {
           logStatus('Destination reached!');
@@ -359,9 +422,10 @@
           stopNavigation();
           return;
         }
+        return;
       }
 
-      // Calculate absolute bearing to the next waypoint
+      // --- 4. Calculate Bearing and Update Arrow ---
       const bearing = calculateBearing(
         currentPosition.lat,
         currentPosition.lon,
@@ -369,32 +433,53 @@
         nextWaypoint.lon
       );
 
-      // Get the camera's current absolute heading from the compass
-      // object3D.rotation is in radians
       const cameraRotation = camera.object3D.rotation.y; 
       const cameraHeading = THREE.MathUtils.radToDeg(cameraRotation);
-      
-      // Calculate the arrow's rotation *relative* to the camera
-      // This is the magic: (Target Bearing) - (Current Camera Heading)
       const relativeBearing = bearing - cameraHeading;
       
-      // Set the arrow's rotation and make it visible
       arrowRotator.setAttribute('rotation', `0 ${relativeBearing} 0`);
       navArrow.setAttribute('visible', 'true');
 
-      // Update instruction text
+      // --- 5. NEW: Step-by-Step Instruction Logic ---
       const instructionText = document.getElementById('instruction-text');
-      instructionText.textContent = `${Math.round(distance)}m to waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`;
       
-      logStatus(`Arrow updated: bearing ${Math.round(bearing)}°, dist ${Math.round(distance)}m`);
+      if (currentStepIndex >= routeSteps.length) {
+        instructionText.textContent = "You have arrived!";
+      } else {
+        // Get the next maneuver (turn, etc.)
+        const nextManeuver = routeSteps[currentStepIndex].maneuver;
+        const maneuverLat = nextManeuver.location[1];
+        const maneuverLon = nextManeuver.location[0];
+
+        // Calculate distance to that maneuver
+        const distanceToManeuver = calculateDistance(
+          currentPosition.lat,
+          currentPosition.lon,
+          maneuverLat,
+          maneuverLon
+        );
+
+        // Check if we've arrived at the maneuver point
+        if (distanceToManeuver < distanceThreshold) {
+          logStatus(`Completed step: ${nextManeuver.instruction}`);
+          currentStepIndex++; // Move to the next step
+          
+          if (currentStepIndex >= routeSteps.length) {
+            instructionText.textContent = "You have arrived!";
+          }
+        }
+
+        // Update text with the *current* step's instruction
+        if (currentStepIndex < routeSteps.length) {
+          const currentInstruction = routeSteps[currentStepIndex].maneuver.instruction;
+          instructionText.textContent = `Next: ${currentInstruction} (in ${Math.round(distanceToManeuver)}m)`;
+        }
+      }
+      
+      logStatus(`Arrow updated: Target WP ${currentWaypointIndex + 1}. Bearing ${Math.round(bearing)}°, dist ${Math.round(distanceToTarget)}m`);
     }
 
-    /**
-     * *** REMOVED `createNavigationArrow` function ***
-     * It is no longer needed.
-     */
-
-    // --- Main Control Functions (Improved) ---
+    // --- Main Control Functions ---
 
     async function startNavigation() {
       const destInput = document.getElementById('destination').value.trim();
@@ -426,15 +511,20 @@
 
       const route = await fetchRoute(lat, lon);
       
-      if (!route) {
-        logStatus("Failed to get route.");
+      // --- MODIFIED: Check for valid legs ---
+      if (!route || !route.legs || route.legs.length === 0) {
+        logStatus("Failed to get route or route has no legs.");
         return;
       }
       
+      // --- MODIFIED: Store steps ---
       routeWaypoints = extractWaypoints(route);
-      currentWaypointIndex = 0;
+      routeSteps = route.legs[0].steps;
       
-      logStatus(`Route: ${routeWaypoints.length} waypoints, ${Math.round(route.distance)}m`);
+      currentWaypointIndex = 0;
+      currentStepIndex = 0;
+      
+      logStatus(`Route: ${routeWaypoints.length} waypoints, ${routeSteps.length} steps, ${Math.round(route.distance)}m`);
       
       document.getElementById('instructions').style.display = 'block';
       navigationActive = true;
@@ -451,12 +541,16 @@
       currentWaypointIndex = 0;
       routeWaypoints = [];
       
+      // --- MODIFIED: Clear step variables ---
+      routeSteps = [];
+      currentStepIndex = 0;
+      
       if (updateInterval) {
         clearInterval(updateInterval);
         updateInterval = null;
       }
       
-      // Hide the arrow, don't destroy it
+      // Hide the arrow
       const navArrow = document.getElementById('nav-arrow');
       if (navArrow) {
         navArrow.setAttribute('visible', 'false');
