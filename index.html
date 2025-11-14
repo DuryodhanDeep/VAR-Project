@@ -10,7 +10,6 @@
   <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.js"></script>
   
   <style>
-    /* Your existing CSS is great. */
     body {
       margin: 0;
       overflow: hidden;
@@ -80,8 +79,6 @@
       cursor: pointer;
       pointer-events: all;
     }
-
-    /* --- NEW CSS FOR DESTINATION REACHED UI --- */
     #destination-reached-overlay {
       position: fixed;
       top: 0;
@@ -91,11 +88,7 @@
       background: rgba(0, 0, 0, 0.85);
       z-index: 2000;
       pointer-events: all;
-      
-      /* Hide by default */
       display: none; 
-
-      /* Flexbox to center content */
       justify-content: center;
       align-items: center;
       flex-direction: column;
@@ -165,15 +158,12 @@
   >
     <a-camera id="camera" gps-camera rotation-reader>
       <a-entity id="nav-arrow" position="0 -1.2 -3" scale="0.7 0.7 0.7" visible="false">
-        
         <a-entity id="arrow-rotator">
-          
           <a-cone 
             rotation="-90 0 0"
             material="color: #FF0000; shader: flat; transparent: true; opacity: 0.6"
             geometry="primitive: cone; radiusBottom: 0.8; radiusTop: 0; height: 2.5">
           </a-cone>
-
         </a-entity>
       </a-entity>
     </a-camera>
@@ -189,7 +179,8 @@
     let destinationThreshold = 10; // 10 meters for the final destination
     let updateInterval = null;
 
-    // --- UI & Logging Functions (Unchanged) ---
+    // Your UI, Geolocation, and Math functions are unchanged
+    
     function togglePanel() {
       const controls = document.getElementById('controls');
       controls.classList.toggle('collapsed');
@@ -201,7 +192,6 @@
       status.innerHTML = `<strong>[${timestamp}]</strong> ${message}<br>` + status.innerHTML;
     }
 
-    // --- Geolocation Functions (Unchanged) ---
     function startPositionTracking() {
       if (navigator.geolocation) {
         navigator.geolocation.watchPosition(
@@ -225,67 +215,47 @@
       }
     }
 
-    // --- Math/Calculation Functions (Unchanged) ---
     function calculateBearing(lat1, lon1, lat2, lon2) {
       const toRadians = (deg) => deg * Math.PI / 180;
       const toDegrees = (rad) => rad * 180 / Math.PI;
-      
       const dLon = toRadians(lon2 - lon1);
       const lat1Rad = toRadians(lat1);
       const lat2Rad = toRadians(lat2);
-      
       const y = Math.sin(dLon) * Math.cos(lat2Rad);
       const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
               Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
-      
       let bearing = toDegrees(Math.atan2(y, x));
       return (bearing + 360) % 360;
     }
 
     function calculateDistance(lat1, lon1, lat2, lon2) {
-      const R = 6371e3; // Earth radius in meters
+      const R = 6371e3;
       const toRadians = (deg) => deg * Math.PI / 180;
-      
       const φ1 = toRadians(lat1);
       const φ2 = toRadians(lat2);
       const Δφ = toRadians(lat2 - lat1);
       const Δλ = toRadians(lon2 - lon1);
-      
       const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
               Math.cos(φ1) * Math.cos(φ2) *
               Math.sin(Δλ/2) * Math.sin(Δλ/2);
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      
-      return R * c; // in meters
+      return R * c;
     }
 
-    // --- Mapbox API Functions ---
     async function fetchRoute(destLat, destLon) {
-      
-      // MODIFICATION 1 (Part B): Token is now a hard-coded constant
       const token = "pk.eyJ1IjoiYXJ5YW5kb25sb25kb24iLCJhIjoiY21odzlnbm90MDA2eTJqcXZkamtxajdjOCJ9.bqShLStraxUBB1ANLi-6ZQ";
-      
       if (!currentPosition) {
         alert('Waiting for GPS position...');
         return null;
       }
-      
       logStatus('Fetching route from Mapbox...');
-      
       const startCoords = `${currentPosition.lon},${currentPosition.lat}`;
       const endCoords = `${destLon},${destLat}`;
-      
       const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${startCoords};${endCoords}?geometries=geojson&steps=true&access_token=${token}`;
-      
       try {
         const response = await fetch(url);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         const data = await response.json();
-        
         if (data.routes && data.routes.length > 0) {
           logStatus('Route fetched successfully');
           return data.routes[0];
@@ -302,18 +272,13 @@
     function extractWaypoints(route) {
       const coordinates = route.geometry.coordinates;
       const waypoints = [];
-      
-      // Smart sampling: ~20 waypoints + final destination
       const stepSize = Math.max(1, Math.floor(coordinates.length / 20));
-      
       for (let i = 0; i < coordinates.length; i += stepSize) {
         waypoints.push({
           lon: coordinates[i][0],
           lat: coordinates[i][1]
         });
       }
-      
-      // Ensure the final, exact destination is always included
       if (coordinates.length > 0) {
         const last = coordinates[coordinates.length - 1];
         if (waypoints[waypoints.length - 1].lon !== last[0] || waypoints[waypoints.length - 1].lat !== last[1]) {
@@ -323,19 +288,14 @@
           });
         }
       }
-      
       return waypoints;
     }
 
+    
     // --- 
-    // *** CORE NAVIGATION LOGIC ***
+    // *** CORE NAVIGATION LOGIC (UPDATED) ***
     // ---
 
-    // MODIFICATION 2 (Part B): testArrow() function is REMOVED
-
-    /**
-     * *** Main Update Loop ***
-     */
     function updateNavigationArrow() {
       if (!currentPosition || !navigationActive || currentWaypointIndex >= routeWaypoints.length) {
         return;
@@ -350,6 +310,35 @@
         return;
       }
 
+      // ---
+      // *** MODIFICATION 1: SMART WAYPOINT SNAPPING ***
+      //
+      // This loop checks if you are closer to the *next* waypoint than the
+      // current one. If so, it skips the current one.
+      // ---
+      while (currentWaypointIndex < routeWaypoints.length - 1) {
+        const distToCurrent = calculateDistance(
+          currentPosition.lat, currentPosition.lon,
+          routeWaypoints[currentWaypointIndex].lat, routeWaypoints[currentWaypointIndex].lon
+        );
+        
+        const distToNext = calculateDistance(
+          currentPosition.lat, currentPosition.lon,
+          routeWaypoints[currentWaypointIndex + 1].lat, routeWaypoints[currentWaypointIndex + 1].lon
+        );
+
+        if (distToNext < distToCurrent) {
+          // You are closer to the next waypoint, so skip the current one
+          logStatus(`Skipping waypoint ${currentWaypointIndex + 1}...`);
+          currentWaypointIndex++;
+        } else {
+          // The current waypoint is still the correct one to target
+          break;
+        }
+      }
+
+      // --- End of Modification 1 ---
+
       const nextWaypoint = routeWaypoints[currentWaypointIndex];
       const distance = calculateDistance(
         currentPosition.lat,
@@ -358,56 +347,69 @@
         nextWaypoint.lon
       );
 
-      // ---
-      // MODIFICATION 3 (Part C): Destination Reached Logic
-      // ---
-      // Check if we are at the FINAL waypoint
+      // Check for final destination
       if (currentWaypointIndex === routeWaypoints.length - 1) {
-          // Check distance to final destination
           if (distance < destinationThreshold) {
               logStatus('Destination reached!');
               document.getElementById('instructions').style.display = 'none';
-              // Show the new "Destination Reached" UI
               document.getElementById('destination-reached-overlay').style.display = 'flex'; 
-              stopNavigation(); // Stop intervals, hide arrow
+              stopNavigation();
               return;
           }
       }
       
-      // This is the existing logic for intermediate waypoints
+      // Check for intermediate waypoints
       if (distance < distanceThreshold) {
           logStatus(`Reached waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`);
           currentWaypointIndex++;
+          // No "return" here, we want to immediately point to the *next* waypoint
       }
 
-      // Calculate absolute bearing to the next waypoint
+      // Recalculate for the (potentially new) next waypoint
+      const finalTargetWaypoint = routeWaypoints[currentWaypointIndex];
+      const finalDistance = calculateDistance(
+        currentPosition.lat,
+        currentPosition.lon,
+        finalTargetWaypoint.lat,
+        finalTargetWaypoint.lon
+      );
+
       const bearing = calculateBearing(
         currentPosition.lat,
         currentPosition.lon,
-        nextWaypoint.lat,
-        nextWaypoint.lon
+        finalTargetWaypoint.lat,
+        finalTargetWaypoint.lon
       );
 
-      // Get the camera's current absolute heading
       const cameraRotation = camera.object3D.rotation.y; 
       const cameraHeading = THREE.MathUtils.radToDeg(cameraRotation);
       
-      // Calculate the arrow's rotation *relative* to the camera
       const relativeBearing = bearing - cameraHeading;
       
-      // Set the arrow's rotation and make it visible
-      arrowRotator.setAttribute('rotation', `0 ${relativeBearing} 0`);
+      // ---
+      // *** MODIFICATION 2: SMOOTHED ARROW ROTATION ***
+      //
+      // Instead of instantly setting the rotation, we animate it
+      // over 1 second (1000ms) for a smooth, stable turn.
+      // ---
+      arrowRotator.setAttribute('animation', {
+        property: 'rotation',
+        to: `0 ${relativeBearing} 0`,
+        dur: 1000,
+        easing: 'linear'
+      });
+      // --- End of Modification 2 ---
+      
       navArrow.setAttribute('visible', 'true');
 
       // Update instruction text
       const instructionText = document.getElementById('instruction-text');
-      instructionText.textContent = `${Math.round(distance)}m to waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`;
+      instructionText.textContent = `${Math.round(finalDistance)}m to waypoint ${currentWaypointIndex + 1}/${routeWaypoints.length}`;
       
-      logStatus(`Arrow updated: bearing ${Math.round(bearing)}°, dist ${Math.round(distance)}m`);
+      logStatus(`Arrow updated: bearing ${Math.round(bearing)}°, dist ${Math.round(finalDistance)}m`);
     }
 
-
-    // --- Main Control Functions ---
+    // --- Main Control Functions (Unchanged) ---
 
     async function startNavigation() {
       const destInput = document.getElementById('destination').value.trim();
@@ -426,13 +428,12 @@
       
       logStatus('Starting navigation...');
       
-      // Wait for GPS lock
       if (!currentPosition) {
         logStatus('Waiting for GPS lock...');
-        setTimeout(startNavigation, 2000); // Retry after 2s
+        setTimeout(startNavigation, 2000);
         return;
       }
-
+      
       const route = await fetchRoute(lat, lon);
       
       if (!route) {
@@ -453,11 +454,10 @@
       document.getElementById('instructions').style.display = 'block';
       navigationActive = true;
       
-      // Clear any old interval and start a new one
       if (updateInterval) {
         clearInterval(updateInterval);
       }
-      updateInterval = setInterval(updateNavigationArrow, 2000); // 2-second update
+      updateInterval = setInterval(updateNavigationArrow, 2000);
     }
 
     function stopNavigation() {
@@ -470,27 +470,22 @@
         updateInterval = null;
       }
       
-      // Hide the arrow
       const navArrow = document.getElementById('nav-arrow');
       if (navArrow) {
         navArrow.setAttribute('visible', 'false');
       }
       
-      // Hide the instruction bar
       document.getElementById('instructions').style.display = 'none';
-
-      // MODIFICATION 3 (Part D): Hide the destination overlay
       document.getElementById('destination-reached-overlay').style.display = 'none';
       
       logStatus('Navigation stopped');
     }
 
-    // --- Initialize ---
+    // --- Initialize (Unchanged) ---
     window.addEventListener('load', () => {
       logStatus('App loaded. Requesting GPS...');
       startPositionTracking();
       
-      // Auto-collapse panel after 5s
       setTimeout(() => {
         document.getElementById('controls').classList.add('collapsed');
       }, 5000);
